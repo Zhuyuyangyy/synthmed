@@ -1,0 +1,49 @@
+# SynthMed Configuration
+
+models:
+  diffusion:
+    base_model: "stabilityai/stable-diffusion-2-1"
+    controlnet: "lllyasviel/sd-controlnet-scribble"
+    dtype: "float16"
+  
+  generation:
+    default_steps: 50
+    default_guidance: 7.5
+    default_size: [512, 512]
+
+storage:
+  output_dir: "data/synthetic"
+  raw_dir: "data/raw"
+  temp_dir: "data/temp"
+  max_storage_gb: 100
+
+queue:
+  redis_url: "redis://localhost:6379"
+  rabbitmq_url: "amqp://localhost:5672"
+  max_concurrent: 4
+  timeout_seconds: 3600
+
+gpu:
+  device: "cuda"
+  memory_limit_gb: 12
+  multi_gpu: false
+
+preprocessing:
+  ct_windowing:
+    brain: {center: 40, width: 80}
+    lung: {center: -600, width: 1600}
+    mediastinum: {center: 50, width: 350}
+    bone: {center: 400, width: 1800}
+  normalization:
+    mode: "minmax"
+    clip_range: [-1024, 3072]
+
+monitoring:
+  log_interval_seconds: 10
+  metrics_retention_days: 30
+
+app:
+  host: "0.0.0.0"
+  port: 8015
+  cors_origins: ["*"]
+  debug: false

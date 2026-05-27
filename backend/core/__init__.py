@@ -1,1 +1,1 @@
-# SynthMed Core
+# Core modules

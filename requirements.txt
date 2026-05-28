@@ -1,0 +1,40 @@
+# SynthMed - Multimodal Sign Language Translation System
+# ======================================================
+# Web framework
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Deep learning
+torch>=2.0.0
+numpy>=1.24.0
+transformers>=4.30.0
+
+# Diffusion models
+diffusers>=0.20.0
+
+# Image processing
+Pillow>=10.0.0
+opencv-python>=4.9.0
+
+# Medical imaging
+SimpleITK>=2.3.0
+nibabel>=5.0.0
+pydicom>=2.4.0
+
+# MediaPipe - hand/face/pose detection
+mediapipe>=0.10.0
+
+# WebRTC
+aiortc>=1.9.0
+websockets>=12.0
+
+# Async processing
+asyncio-throttle>=1.0.2
+
+# Configuration
+pyyaml>=6.0.0
+
+# Utilities
+python-dotenv>=1.0.0

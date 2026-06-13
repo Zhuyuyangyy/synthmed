@@ -171,7 +171,8 @@ class AnatomicalControlNet:
             
         elif style == "canny":
             # Canny边缘检测
-            from cv2 import Canny, cv2
+            import cv2
+            Canny = cv2.Canny
             
             mask_np = mask.cpu().numpy().astype(np.uint8) * 255
             edges = Canny(mask_np, 50, 150)

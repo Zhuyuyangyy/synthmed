@@ -12,6 +12,7 @@ import nibabel as nib
 import pydicom
 from pydicom.pixel_data_handlers.util import apply_voi_lut
 import cv2
+from scipy import ndimage
 from dataclasses import dataclass
 
 

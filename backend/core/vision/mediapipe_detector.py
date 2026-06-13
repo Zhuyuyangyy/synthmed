@@ -240,18 +240,17 @@ class MediaPipeDetector:
 
         # 面部特征 (降维处理)
         if keypoints.face is not None:
-            # 取关键面部点 (眉毛、眼睛、嘴巴周围)
-            face_key_indices = list(range(33, 133))  # 前额和眉毛区域
-            face_key_indices.extend(range(133, 173))  # 眼睛区域
-            face_key_indices.extend(range(193, 263))  # 嘴巴区域
+            # 取100个关键面部点 (前额、眉毛区域), 100 * 3 = 300维
+            face_key_indices = list(range(33, 133))
             face_key = keypoints.face.landmarks[face_key_indices]
-            features.extend(face_key.flatten())  # 降维后的面部特征
+            features.extend(face_key.flatten())  # 300维, 匹配 FusionConfig.face_dim
         else:
             features.extend(np.zeros(300))  # 模拟面部特征
 
-        # 身体特征 (取上身关键点)
+        # 身体特征 (取上身关键点, MediaPipe Pose共33个关键点)
         if keypoints.body is not None:
-            body_upper = list(range(0, 25)) + list(range(91, 103))  # 上半身 + 手臂
+            # 上半身关键点索引 (0-24) -- 安全截取不超过33的范围
+            body_upper = list(range(0, min(25, len(keypoints.body.landmarks))))
             body_key = keypoints.body.landmarks[body_upper]
             features.extend(body_key.flatten())
         else:

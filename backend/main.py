@@ -13,6 +13,7 @@ import uuid
 import logging
 import base64
 import io
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Optional, List, Dict
@@ -177,7 +178,7 @@ async def detailed_health():
 
     return SystemHealth(
         status="healthy",
-        timestamp=__import__('datetime').datetime.now(),
+        timestamp=datetime.now(),
         models=models,
         latency_ms=None
     )
@@ -238,7 +239,7 @@ async def recognize_sign_language(frames: List[str]):
         return {
             "status": "success",
             "text": result.get('text', ''),
-            "confidence": result.get('confidence', 0.96),
+            "confidence": result.get('confidence', 0.0),
             "translation_id": translation_id,
             "processing_time_ms": processing_time,
             "frames_processed": len(frames)
@@ -419,7 +420,7 @@ async def websocket_stream(websocket):
                     'type': 'final',
                     'text': result.get('text'),
                     'confidence': result.get('confidence'),
-                    'translation_id': translation_id
+                    'translation_id': connection_id
                 })
 
             elif data.get('type') == 'ping':

@@ -1,10 +1,12 @@
-# SynthMed - Multimodal Sign Language Translation System
-# ======================================================
+# SynthMed - Privacy-Preserving Synthetic Medical Data Platform
+# ============================================================
+
 # Web framework
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
+python-multipart>=0.0.9
 
 # Deep learning
 torch>=2.0.0
@@ -36,5 +38,30 @@ asyncio-throttle>=1.0.2
 # Configuration
 pyyaml>=6.0.0
 
+# Privacy-preserving ML
+opacus>=1.4.0
+
+# LoRA fine-tuning
+peft>=0.7.0
+
+# Scientific computing
+scipy>=1.11.0
+scikit-image>=0.22.0
+
+# GPU monitoring
+pynvml>=11.5.0
+
 # Utilities
 python-dotenv>=1.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.23.0
+httpx>=0.25.0
+
+# Code quality
+ruff>=0.1.0
+
+# Logging
+loguru>=0.7.0

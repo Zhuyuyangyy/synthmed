@@ -5,7 +5,8 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from typing import Dict, Tuple, Optional
+from pathlib import Path
+from typing import Dict, Tuple, Optional, Union
 from dataclasses import dataclass
 import logging
 
@@ -23,6 +24,7 @@ class FusionConfig:
     hand_dim: int = 126  # 21 * 3 * 2 (双手)
     face_dim: int = 300  # 降维后的面部特征
     body_dim: int = 75   # 上半身关键点
+    num_classes: int = 38  # CSL词汇表大小
 
 
 class SpatialAttention(nn.Module):
@@ -156,7 +158,7 @@ class TriChannelFusionTransformer(nn.Module):
             nn.Linear(cfg.d_model, cfg.d_model // 2),
             nn.ReLU(),
             nn.Dropout(cfg.dropout),
-            nn.Linear(cfg.d_model // 2, 1)  # CSL词汇分类
+            nn.Linear(cfg.d_model // 2, cfg.num_classes)  # CSL词汇分类
         )
 
     def forward(self, hand_seq: torch.Tensor, face_seq: torch.Tensor,
@@ -220,7 +222,8 @@ class SignLanguageRecognizer:
         fusion_config = FusionConfig(
             d_model=self.config.get('d_model', 256),
             nhead=self.config.get('nhead', 8),
-            num_layers=self.config.get('num_layers', 4)
+            num_layers=self.config.get('num_layers', 4),
+            num_classes=self.config.get('num_classes', 38)
         )
 
         self.model = TriChannelFusionTransformer(fusion_config)
@@ -282,16 +285,124 @@ class SignLanguageRecognizer:
 
 
 class DummyRecognizer:
-    """用于演示的假识别器"""
+    """
+    降级识别器 — 当 SignLanguageRecognizer 初始化失败时使用。
 
-    def __init__(self):
-        self.glosses = ["你好", "谢谢", "再见", "对不起", "请"]
+    行为：
+    1. 自动扫描 train_recognition.py 的 checkpoints 目录，加载最新的
+       TriChannelFusionTransformer 权重（来自 TriChannelWrapper 的 state_dict）。
+    2. 若无可用 checkpoint，创建未训练模型并发出警告。
+    3. 所有 confidence 均来自模型 softmax 推理，**不再硬编码**。
+    """
 
+    # 默认 checkpoint 搜索路径（与 train_recognition.py 一致）
+    _DEFAULT_CKPT_DIR = Path(__file__).resolve().parent.parent / "training" / "checkpoints" / "csl_recognition"
+
+    def __init__(self, checkpoint_dir: Optional[Union[str, Path]] = None, config: Optional[FusionConfig] = None):
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.config = config or FusionConfig()
+        self.model: Optional[TriChannelFusionTransformer] = None
+        self._loaded_ckpt_epoch: Optional[int] = None
+
+        ckpt_dir = Path(checkpoint_dir) if checkpoint_dir else self._DEFAULT_CKPT_DIR
+        self._load_from_checkpoint(ckpt_dir)
+
+    def _load_from_checkpoint(self, ckpt_dir: Path) -> None:
+        """尝试从 checkpoint 目录加载最新 best 权重。"""
+        if ckpt_dir.is_dir():
+            # 按 epoch 编号降序查找 *_best.pt
+            best_ckpts = sorted(
+                ckpt_dir.glob("*_best.pt"),
+                key=lambda p: int(p.stem.split("_")[0].replace("epoch", "")) if "epoch" in p.stem else 0,
+                reverse=True,
+            )
+            for ckpt_path in best_ckpts:
+                try:
+                    ckpt = torch.load(str(ckpt_path), map_location=self.device, weights_only=False)
+                    state_dict = ckpt["model"]
+                    # TriChannelWrapper 存储的 key 带 "inner." 前缀，需剥离
+                    cleaned = {k.removeprefix("inner."): v for k, v in state_dict.items()}
+
+                    # 从 checkpoint config 恢复 FusionConfig（若存在）
+                    if "config" in ckpt and isinstance(ckpt["config"], dict):
+                        saved_cfg = ckpt["config"]
+                        # TrainConfig 的字段名与 FusionConfig 不同，只提取相关字段
+                        fusion_fields = {f.name for f in FusionConfig.__dataclass_fields__.values()}
+                        self.config = FusionConfig(**{k: v for k, v in saved_cfg.items() if k in fusion_fields})
+
+                    self.model = TriChannelFusionTransformer(self.config)
+                    self.model.load_state_dict(cleaned, strict=False)
+                    self.model.to(self.device)
+                    self.model.eval()
+                    self._loaded_ckpt_epoch = ckpt.get("epoch")
+                    logger.info(
+                        "DummyRecognizer loaded trained weights from %s (epoch %s) on %s",
+                        ckpt_path.name, self._loaded_ckpt_epoch, self.device,
+                    )
+                    return
+                except Exception as e:
+                    logger.warning("Failed to load checkpoint %s: %s", ckpt_path, e)
+                    continue
+
+        # 无可用 checkpoint：创建未训练模型
+        logger.warning(
+            "No trained checkpoint found in %s — DummyRecognizer will use an "
+            "UNTRAINED model. Confidence will be low and predictions random. "
+            "Run train_recognition.py first to produce real weights.", ckpt_dir,
+        )
+        self.model = TriChannelFusionTransformer(self.config)
+        self.model.to(self.device)
+        self.model.eval()
+
+    @torch.no_grad()
     def recognize(self, hand_features: np.ndarray, face_features: np.ndarray,
                  body_features: np.ndarray) -> Dict:
-        import random
+        """
+        使用 TriChannelFusionTransformer 进行真实推理。
+
+        Args:
+            hand_features: (seq_len, 126)
+            face_features:  (seq_len, 300)
+            body_features:  (seq_len, 75)
+
+        Returns:
+            dict with 'text', 'confidence', 'attention_weights', 'source'
+        """
+        if self.model is None:
+            return {'text': None, 'confidence': 0.0, 'error': 'Model not initialized'}
+
+        # 转为 tensor
+        hand_t = torch.as_tensor(hand_features, dtype=torch.float32).unsqueeze(0).to(self.device)
+        face_t = torch.as_tensor(face_features, dtype=torch.float32).unsqueeze(0).to(self.device)
+        body_t = torch.as_tensor(body_features, dtype=torch.float32).unsqueeze(0).to(self.device)
+
+        # 前向推理
+        logits, attn_weights = self.model(hand_t, face_t, body_t)
+        probs = torch.softmax(logits, dim=-1)
+        confidence, predicted = torch.max(probs, dim=-1)
+
+        source = "trained_checkpoint" if self._loaded_ckpt_epoch is not None else "untrained_model"
+
         return {
-            'text': random.choice(self.glosses),
-            'confidence': 0.96,
-            'note': 'Demo mode - using simulated recognition'
+            'text': self._index_to_gloss(predicted.item()),
+            'confidence': round(confidence.item(), 4),
+            'attention_weights': {k: v.cpu().numpy() for k, v in attn_weights.items()},
+            'source': source,
+            'checkpoint_epoch': self._loaded_ckpt_epoch,
+            'note': 'Inference from TriChannelFusionTransformer via DummyRecognizer'
         }
+
+    @staticmethod
+    def _index_to_gloss(index: int) -> str:
+        """索引转 CSL 词汇（与 SignLanguageRecognizer 保持一致）。"""
+        csl_glosses = [
+            "你好", "谢谢", "再见", "对不起", "请", "是", "不是",
+            "我", "你", "他", "她", "我们", "你们", "他们",
+            "吃饭", "喝水", "睡觉", "工作", "学习", "朋友",
+            "家", "学校", "医院", "银行", "商店", "公园",
+            "今天", "明天", "昨天", "时间", "早上", "晚上",
+            "高兴", "伤心", "生气", "害怕", "惊讶", "喜欢"
+        ]
+        if 0 <= index < len(csl_glosses):
+            return csl_glosses[index]
+        return f"GLOSS_{index}"

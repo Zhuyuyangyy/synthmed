@@ -1,0 +1,108 @@
+version: "3.9"
+
+services:
+  # ========== Sign Language Translation Backend ==========
+  backend-sign:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: synthmed-sign-api
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - HOST=0.0.0.0
+      - PORT=8000
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+    volumes:
+      - ./backend:/app
+      - model-cache:/root/.cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - synthmed-net
+
+  # ========== Medical Image Synthesis Backend ==========
+  backend-medical:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: synthmed-medical-api
+    ports:
+      - "8015:8015"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - HOST=0.0.0.0
+      - PORT=8015
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+    volumes:
+      - ./backend:/app
+      - model-cache:/root/.cache
+      - medical-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8015/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - synthmed-net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # ========== Vue Frontend ==========
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: synthmed-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      backend-sign:
+        condition: service_healthy
+      backend-medical:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - synthmed-net
+
+  # ========== Nginx Reverse Proxy (Production) ==========
+  nginx:
+    image: nginx:alpine
+    container_name: synthmed-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - backend-sign
+      - backend-medical
+    restart: unless-stopped
+    networks:
+      - synthmed-net
+
+volumes:
+  model-cache:
+    driver: local
+  medical-data:
+    driver: local
+
+networks:
+  synthmed-net:
+    driver: bridge

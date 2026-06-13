@@ -100,7 +100,7 @@ class TextToSignGenerator:
 
         # 模拟CSL词汇化
         csl_dict = {
-            "你": "你", "好": "好", "谢": "谢谢", "谢": "谢谢",
+            "你": "你", "好": "好", "谢": "谢谢",
             "再": "再见", "见": "再见", "对": "对不起", "不": "不",
             "起": "对不起", "我": "我", "们": "我们", "高": "高兴",
             "兴": "高兴", "认": "认识", "识": "认识", "很": "很"
@@ -201,6 +201,12 @@ class TextToSignGenerator:
 
     def _render_frames(self, keypoints: np.ndarray) -> List[np.ndarray]:
         """渲染关键点为图像帧"""
+        try:
+            import cv2
+        except ImportError:
+            # Fallback: render without cv2 using PIL
+            return self._render_frames_pil(keypoints)
+
         h, w = 512, 512
         frames = []
 
@@ -211,8 +217,32 @@ class TextToSignGenerator:
             hand_pts = keypoints[frame_idx]
             for pt in hand_pts:
                 x, y = int(pt[0] * w), int(pt[1] * h)
+                x = max(0, min(w - 1, x))
+                y = max(0, min(h - 1, y))
                 cv2.circle(frame, (x, y), 3, (255, 100, 100), -1)
 
+            frames.append(frame)
+
+        return frames
+
+    def _render_frames_pil(self, keypoints: np.ndarray) -> List[np.ndarray]:
+        """Fallback renderer using PIL (no cv2 dependency)"""
+        h, w = 512, 512
+        frames = []
+
+        for frame_idx in range(0, len(keypoints), 1):
+            frame = np.ones((h, w, 3), dtype=np.uint8) * 240
+            hand_pts = keypoints[frame_idx]
+            for pt in hand_pts:
+                x, y = int(pt[0] * w), int(pt[1] * h)
+                x = max(0, min(w - 1, x))
+                y = max(0, min(h - 1, y))
+                # Draw a small dot
+                for dx in range(-2, 3):
+                    for dy in range(-2, 3):
+                        nx, ny = x + dx, y + dy
+                        if 0 <= nx < w and 0 <= ny < h:
+                            frame[ny, nx] = [255, 100, 100]
             frames.append(frame)
 
         return frames
